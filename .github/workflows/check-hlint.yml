@@ -1,0 +1,32 @@
+name: HLint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hlint:
+    name: HLint
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: 'Set up HLint'
+      uses: haskell-actions/hlint-setup@v2
+      with:
+        version: '3.10'
+
+    - name: 'Run HLint'
+      uses: haskell-actions/hlint-run@v2
+      with:
+        path: '.'
+        fail-on: suggestion

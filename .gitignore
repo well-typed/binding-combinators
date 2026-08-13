@@ -1,0 +1,23 @@
+# Configuration directories (top-level)
+/.direnv/
+
+# Configuration files (project-wide)
+.dir-locals.el
+.envrc
+
+# Configuration directories (project-wide)
+.vscode/
+
+cabal.project.local
+dist-newstyle/
+.ghc.environment.*
+unversioned
+
+*.dll
+*.log
+
+# Local development project files (machine-specific paths); see cabal.project.dev
+cabal.project.dev
+cabal.project.dev.local
+cabal.project.srp-check
+

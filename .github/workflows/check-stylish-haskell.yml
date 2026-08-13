@@ -1,0 +1,60 @@
+name: Stylish Haskell
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fix the index state. It rarely has to change unless we want to use a new
+  # version of stylish-haskell.
+  hackage-index-state: "2025-09-29T00:00:00Z"
+
+jobs:
+  stylish-haskell:
+    name: Stylish Haskell
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Setup Haskell
+      id: setup-haskell
+      uses: haskell-actions/setup@v2
+      with:
+        # stylish-haskell does not yet build with 9.14.1
+        ghc-version: 9.12.2
+        cabal-version: 3.16
+
+    - name: Restore cache
+      id: cache-cabal-restore
+      uses: actions/cache/restore@v6
+      env:
+        key: stylish-haskell-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-cabal-${{ steps.setup-haskell.outputs.cabal-version }}
+      with:
+        path: ${{ steps.setup-haskell.outputs.cabal-store }}
+        key: ${{ env.key }}-input-state-${{ env.hackage-index-state }}
+        restore-keys: ${{ env.key }}-
+
+    # Ignores the project file, since installing stylish-haskell does not have
+    # to use the same configuration as the rest of this project.
+    - name: Install stylish-haskell
+      run: |
+        cabal install stylish-haskell --ignore-project --index-state=${{ env.hackage-index-state }}
+
+    - name: Save cache
+      uses: actions/cache/save@v6
+      if: ${{ steps.cache-cabal-restore.outputs.cache-hit != 'true' }}
+      with:
+        path: ${{ steps.setup-haskell.outputs.cabal-store }}
+        key: ${{ steps.cache-cabal-restore.outputs.cache-primary-key }}
+
+    - name: Check import formatting
+      run: scripts/ci/run-stylish-haskell.sh -c

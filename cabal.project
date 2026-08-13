@@ -1,0 +1,6 @@
+import: ./cabal.project.base
+import: ./cabal.project.pin
+
+packages: .
+
+tests: True

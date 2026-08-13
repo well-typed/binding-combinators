@@ -1,0 +1,113 @@
+cabal-version:   3.0
+name:            binding-combinators
+version:         0.1.0
+synopsis:
+  Declarative high-level wrappers over low-level Haskell FFI bindings
+
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Well-Typed LLP
+maintainer:      info@well-typed.com
+category:        Development
+build-type:      Simple
+homepage:        https://github.com/well-typed/binding-combinators
+bug-reports:     https://github.com/well-typed/binding-combinators/issues
+tested-with:
+  GHC ==9.2.8
+   || ==9.4.8
+   || ==9.6.7
+   || ==9.8.4
+   || ==9.10.3
+   || ==9.12.2
+   || ==9.14.1
+
+description:
+  A combinator library for hand-writing high-level, type-safe Haskell wrappers over
+  low-level FFI bindings. You describe how a low-level callable maps to the idiomatic
+  Haskell function you want to expose, and this library does the marshalling and
+  unmarshalling. Start from
+
+  > Binding.Combinators
+
+  and see the @README@ for an overview.
+
+extra-doc-files:
+  CHANGELOG.md
+  docs/*.md
+  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/binding-combinators
+
+common lang
+  ghc-options:
+    -Wall -Wcompat -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wpartial-fields -Widentities
+    -Wredundant-constraints -Wmissing-export-lists
+    -Wno-unticked-promoted-constructors -Wunused-packages
+    -Wprepositive-qualified-module
+
+  ghc-options:        -Werror=missing-deriving-strategies
+  build-depends:      base >=4.16 && <4.23
+  default-language:   GHC2021
+  default-extensions:
+    DataKinds
+    DerivingStrategies
+    FunctionalDependencies
+    TypeFamilies
+    UndecidableInstances
+
+  other-extensions:
+    GADTs
+    MagicHash
+    OverloadedStrings
+    TupleSections
+    UnboxedTuples
+    UnliftedNewtypes
+
+library
+  import:          lang
+  hs-source-dirs:  src
+  exposed-modules:
+    Binding.Combinators
+    Binding.Combinators.Auto
+    Binding.Combinators.Defaults
+    Binding.Combinators.Internal.Errors
+    Binding.Combinators.Internal.Spec
+    Binding.Combinators.Internal.Threading
+    Binding.Combinators.Marshaller
+    Binding.Combinators.Marshaller.Utils
+    Binding.Combinators.Result
+    Binding.Combinators.Unlifted
+
+  build-depends:
+    , bytestring          >=0.11 && <0.13
+    , hs-bindgen-runtime  >=0.1  && <0.2
+
+test-suite test-binding-combinators
+  import:         lang
+  hs-source-dirs: test
+  type:           exitcode-stdio-1.0
+  main-is:        test-binding-combinators.hs
+  other-modules:
+    Test.Binding.Combinators
+    Test.Binding.Combinators.Auto
+    Test.Binding.Combinators.Closers
+    Test.Binding.Combinators.Errors
+    Test.Binding.Combinators.FirstBinding
+    Test.Binding.Combinators.Inputs
+    Test.Binding.Combinators.Outputs
+    Test.Binding.Combinators.Scratch
+    Test.Binding.Combinators.Struct
+    Test.Binding.Combinators.Unlifted
+    Test.Binding.Combinators.Util
+
+  -- bytestring and hs-bindgen-runtime are bounded in the library stanza above.
+  build-depends:
+    , binding-combinators
+    , bytestring
+    , hs-bindgen-runtime
+    , tasty                >=1.5    && <1.6
+    , tasty-hunit          >=0.10.2 && <0.11
+    , tasty-quickcheck     >=0.11   && <0.12

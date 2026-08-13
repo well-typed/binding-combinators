@@ -1,0 +1,4 @@
+# Files to be ignored by stylish-haskell formatting
+# Add file paths (relative to project root) that should not be formatted
+# Examples:
+*/Setup.hs

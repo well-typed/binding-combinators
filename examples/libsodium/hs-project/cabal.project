@@ -1,0 +1,5 @@
+import: ../../../cabal.project.base
+import: ../../../cabal.project.pin-with-cli
+
+packages: .
+          ../../..

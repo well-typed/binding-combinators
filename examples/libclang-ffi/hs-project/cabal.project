@@ -1,0 +1,26 @@
+-- Self-contained apart from the pin: this project does NOT import
+-- ../../../cabal.project.base, because it needs a different index-state.
+--
+-- The point of this example is to build over libclang's RAW Clang.LowLevel.FFI. Upstream
+-- libclang-bindings keeps that module (and the Clang.Internal.* / Clang.LowLevel.Core.*
+-- plumbing it is written in terms of) as other-modules, so the version on Hackage does
+-- not let a downstream package import the substrate at all. We therefore depend on a
+-- local, lightly-patched copy that re-exposes those modules (see
+-- ../libclang-bindings/libclang-bindings.cabal, materialised by generate-and-run.sh);
+-- the `packages:` entry below shadows the Hackage version.
+--
+-- The index-state is older than the one in cabal.project.base. Why is not recorded: the
+-- example was written against this snapshot and has not been retried on a newer one.
+-- Aligning it with the shared base is untested, so it is left alone rather than changed
+-- blind.
+index-state: 2026-03-12T10:22:50Z
+
+packages:
+  .
+  ../libclang-bindings
+  ../../..
+
+-- Unlike the other examples this one never runs hs-bindgen-cli: it wraps
+-- libclang-bindings' own raw FFI rather than generated bindings. So it takes the
+-- runtime-only pin.
+import: ../../../cabal.project.pin

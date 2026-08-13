@@ -1,0 +1,272 @@
+-- | Ready-made marshallers for common Haskell/C type pairs, for use with @input@,
+-- @output@ (and, for the constant-argument helper, @fixed@) from "Binding.Combinators".
+--
+-- Each marshaller is a thin convenience over a constructor from
+-- "Binding.Combinators.Marshaller": 'bracket' (the common single-argument case), the
+-- t'Marshal' constructor (one or more C arguments, or custom nested bracketing), or an
+-- out-parameter constructor ('unmarshalOut' \/ 'unmarshalOutWith'). The module also
+-- ships a constant argument ('nullConst', for 'Binding.Combinators.fixed') and an
+-- allocator ('allocaZeroedBytes'). For a conversion not covered here, build your own the
+-- same way.
+--
+module Binding.Combinators.Marshaller.Utils (
+    -- * Input marshallers
+    withCStringIn
+  , withCStringMutIn
+  , withCStringArrayIn
+  , useAsByteStringLenIn
+  , constByteStringLenIn
+  , unsafeByteStringIn
+  , unsafeByteStringLenIn
+  , withConstIncompleteArrayIn
+  , funPtrIn
+  , funPtrInAs
+    -- * Output marshallers
+  , peekCStringOut
+  , zeroedCStringOut
+  , byteStringOut
+  , peekIncompleteArrayOut
+    -- * Allocators
+  , allocaZeroedBytes
+    -- * Managed-handle output
+  , outForeignPtr
+    -- * Constant arguments
+  , nullConst
+  ) where
+
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
+import Data.Coerce (Coercible)
+import Foreign.C.String (CStringLen, peekCString, withCString)
+import Foreign.C.Types (CChar, CSize)
+import Foreign.ForeignPtr (FinalizerPtr, ForeignPtr, newForeignPtr)
+import Foreign.Marshal.Alloc (allocaBytes)
+import Foreign.Marshal.Array (allocaArray, withArray)
+import Foreign.Marshal.Utils (fillBytes, withMany)
+import Foreign.Ptr (FunPtr, Ptr, castPtr, nullPtr)
+import Foreign.Storable (Storable)
+
+import HsBindgen.Runtime.IncompleteArray (IncompleteArray)
+import HsBindgen.Runtime.IncompleteArray qualified as IA
+import HsBindgen.Runtime.IsArray qualified as IsA
+import HsBindgen.Runtime.PtrConst (PtrConst)
+import HsBindgen.Runtime.PtrConst qualified as PtrConst
+import HsBindgen.Runtime.Support.FunPtr (ToFunPtr, withFunPtr, withFunPtrAs)
+
+import Binding.Combinators.Marshaller (Marshal (..), Unmarshaller, bracket,
+                                       unmarshalOut, unmarshalOutWith)
+
+{-------------------------------------------------------------------------------
+  Input marshallers
+-------------------------------------------------------------------------------}
+
+-- | Marshal a 'String' as a NUL-terminated @const char *@ via 'withCString'
+-- (one C argument). C must not retain the pointer past the call.
+--
+withCStringIn :: Marshal String (PtrConst CChar -> lo') lo'
+withCStringIn = bracket (\s k -> withCString s (k . PtrConst.unsafeFromPtr))
+{-# INLINE withCStringIn #-}
+
+-- | Marshal a 'String' as a NUL-terminated non-@const@ @char *@ (one C argument),
+-- the mutable-pointer counterpart of 'withCStringIn' for a C argument typed
+-- @char *@. C must not retain the pointer past the call. (For 'Data.Text.Text', use
+-- @'Binding.Combinators.Marshaller.at' Data.Text.unpack withCStringMutIn@.)
+--
+withCStringMutIn :: Marshal String (Ptr CChar -> lo') lo'
+withCStringMutIn = bracket withCString
+{-# INLINE withCStringMutIn #-}
+
+-- | Marshal a @['String']@ as a @const char *const *@ (one C argument): each element
+-- is laid out with 'withCString' (so each string is NUL-terminated) and the pointers
+-- gathered into a C array. The pointer array itself is /not/ NULL-terminated, so its
+-- length is a separate C argument (a 'Binding.Combinators.fixed' at the call site, or
+-- another input). C must not retain the array or its strings past the call.
+--
+withCStringArrayIn :: Marshal [String] (PtrConst (PtrConst CChar) -> lo') lo'
+withCStringArrayIn = bracket $ \ss k ->
+  withMany withCString ss $ \cstrs ->
+    withArray cstrs $ \arr ->
+      k (PtrConst.unsafeFromPtr (castPtr arr))
+{-# INLINE withCStringArrayIn #-}
+
+-- | Marshal a 'ByteString' as a @(const char *, size_t)@ pair, the canonical
+-- byte-buffer default. It is the @CChar@ \/ @CSize@ specialization of
+-- 'constByteStringLenIn'.
+--
+useAsByteStringLenIn
+  :: Marshal ByteString (PtrConst CChar -> CSize -> lo') lo'
+useAsByteStringLenIn = constByteStringLenIn
+{-# INLINE useAsByteStringLenIn #-}
+
+-- Shared plumbing for the @(const T *, len)@ ByteString marshallers: retag the
+-- borrowed or copied buffer pointer and coerce the length. The @use@ bracket is
+-- 'BS.useAsCStringLen' (copy and NUL-terminate) or 'BSU.unsafeUseAsCStringLen'
+-- (zero-copy).
+byteStringLenInWith
+  :: Integral len
+  => (forall r. ByteString -> (CStringLen -> IO r) -> IO r)
+  -> Marshal ByteString (PtrConst a -> len -> lo') lo'
+byteStringLenInWith use = Marshal $ \bs lo k ->
+  use bs $ \(p, n) ->
+    k (lo (PtrConst.unsafeFromPtr (castPtr p)) (fromIntegral n))
+{-# INLINE byteStringLenInWith #-}
+
+-- | Marshal a 'ByteString' as a @(const T *, len)@ pair for any pointer element type
+-- @a@ and any integral length type @len@, e.g. libsodium's
+-- @(const unsigned char *, unsigned long long)@. @auto@ resolves any such pair via
+-- the 'Binding.Combinators.Defaults.DefaultIn' 'ByteString' default; use this
+-- directly to write a marshaller by hand.
+--
+constByteStringLenIn
+  :: Integral len => Marshal ByteString (PtrConst a -> len -> lo') lo'
+constByteStringLenIn = byteStringLenInWith BS.useAsCStringLen
+{-# INLINE constByteStringLenIn #-}
+
+-- | Marshal a 'ByteString' as a bare @const T *@ (one C argument), zero-copy: the
+-- pointer is the ByteString's own buffer, valid only for the call and NOT
+-- NUL-terminated, so C must read a length it already knows (a fixed-size buffer) and
+-- must not retain the pointer. The element type is left polymorphic. Where C also
+-- takes the length use 'unsafeByteStringLenIn'; for a safe NUL-terminated
+-- copy use 'constByteStringLenIn'.
+--
+unsafeByteStringIn :: Marshal ByteString (PtrConst a -> lo') lo'
+unsafeByteStringIn = bracket $ \bs k ->
+  BSU.unsafeUseAsCStringLen bs $ \(p, _len) ->
+    k (PtrConst.unsafeFromPtr (castPtr p))
+{-# INLINE unsafeByteStringIn #-}
+
+-- | Marshal a 'ByteString' as a @(const T *, len)@ pair (@len@ any integral type),
+-- zero-copy: the pointer is the ByteString's own buffer, valid only for the call and
+-- NOT NUL-terminated, so C must honour the length and must not retain the pointer.
+-- The zero-copy counterpart of 'constByteStringLenIn' (which copies to NUL-terminate);
+-- prefer this when C takes an explicit length and the extra copy is unwanted.
+--
+unsafeByteStringLenIn
+  :: Integral len => Marshal ByteString (PtrConst a -> len -> lo') lo'
+unsafeByteStringLenIn = byteStringLenInWith BSU.unsafeUseAsCStringLen
+{-# INLINE unsafeByteStringLenIn #-}
+
+-- | View an 'IncompleteArray' as a read-only @const T *@ (one C argument). The pointer
+-- is valid only for the call; C must not retain it past the call.
+--
+withConstIncompleteArrayIn
+  :: Storable a => Marshal (IncompleteArray a) (PtrConst a -> lo') lo'
+withConstIncompleteArrayIn =
+  bracket (\arr k -> IsA.withElemPtr arr (k . PtrConst.unsafeFromPtr))
+{-# INLINE withConstIncompleteArrayIn #-}
+
+-- | Pass a Haskell function as a C function pointer, bracketed via 'withFunPtr'
+-- (one C argument). The 'FunPtr' is freed when the call returns, so this is only
+-- safe for callbacks invoked /during/ the call. The C import that receives the
+-- 'FunPtr' must be a @safe@ foreign import: C calls back into the Haskell runtime
+-- through it, and an @unsafe@ import that does so can crash or deadlock.
+--
+funPtrIn :: ToFunPtr a => Marshal a (FunPtr a -> lo') lo'
+funPtrIn = bracket withFunPtr
+{-# INLINE funPtrIn #-}
+
+-- | 'funPtrIn' for callbacks whose own type has no 'ToFunPtr' instance, provided the
+-- callback is 'Coercible' to a signature @b@ that has one (see @withFunPtrAs@). @b@ is
+-- normally inferred from the C import; pin it with a type application where it is not.
+--
+funPtrInAs :: forall b a lo'. (Coercible a b, ToFunPtr b) => Marshal a (FunPtr b -> lo') lo'
+funPtrInAs = bracket withFunPtrAs
+{-# INLINE funPtrInAs #-}
+
+{-------------------------------------------------------------------------------
+  Output marshallers
+-------------------------------------------------------------------------------}
+
+-- | Allocate a @cap@-byte buffer, run the call, peek a NUL-terminated 'String'
+-- from it.
+--
+-- C must NUL-terminate within @cap@ bytes. 'peekCString' scans to the
+-- first NUL and reads past the buffer if there is none, so size @cap@ to the C
+-- contract with the terminator included.
+--
+peekCStringOut :: Int -> Unmarshaller (Ptr CChar) String
+peekCStringOut cap = unmarshalOutWith (allocaBytes cap) peekCString
+{-# INLINE peekCStringOut #-}
+
+-- | 'peekCStringOut' over a buffer that starts out zeroed, for the C @errbuf@
+-- convention: a @char[N]@ the caller supplies and the call writes a message into
+-- __only when something goes wrong__.
+--
+-- @pcap_findalldevs@ is the shape, and so is every @f(..., char *errbuf)@ like it.
+-- Reading such a buffer back with 'peekCStringOut' would peek uninitialized memory
+-- on the calls that succeeded; zeroing it first makes \"the call wrote nothing\" read
+-- back as @\"\"@, which is both defined and the answer you want. Because a zeroed
+-- buffer needs no caller-side setup, it can be an ordinary 'Binding.Combinators.output'
+-- that the spec allocates and zeroes itself, rather than something the binding allocates
+-- around the spec and pins in with 'Binding.Combinators.fixed':
+--
+-- > findAllDevNames :: IO [String]
+-- > findAllDevNames = toHighLevel pcap_findalldevs
+-- >   $ output peekPcapDeviceNames           -- pcap_if_t **
+-- >   $ output (zeroedCStringOut errbufSize) -- char *errbuf
+-- >   $ resultIO (\names errMsg status -> do
+-- >       when (status /= 0) $ throwIO (PcapError errMsg status)
+-- >       pure names)
+--
+zeroedCStringOut :: Int -> Unmarshaller (Ptr CChar) String
+zeroedCStringOut cap = unmarshalOutWith (allocaZeroedBytes cap) peekCString
+{-# INLINE zeroedCStringOut #-}
+
+-- | Allocate an @n@-byte buffer, run the call, read the buffer back as a
+-- 'ByteString' of exactly @n@ bytes. Unlike 'peekCStringOut' it does not scan for a
+-- NUL, so it fits a caller-sized output buffer (an encrypt's ciphertext, a
+-- fixed-size digest); C must fill all @n@ bytes.
+--
+byteStringOut :: Int -> Unmarshaller (Ptr a) ByteString
+byteStringOut n = unmarshalOutWith (allocaBytes n) (\p -> BS.packCStringLen (castPtr p, n))
+{-# INLINE byteStringOut #-}
+
+-- | Allocate a fixed-size @n@-element array buffer, run the call, peek the buffer back
+-- as an 'IncompleteArray'. C must fill all @n@ elements.
+--
+peekIncompleteArrayOut
+  :: Storable a => Int -> Unmarshaller (Ptr a) (IncompleteArray a)
+peekIncompleteArrayOut n = unmarshalOutWith (allocaArray n) (\p -> IA.peekArray n (IA.toPtr p))
+{-# INLINE peekIncompleteArrayOut #-}
+
+{-------------------------------------------------------------------------------
+  Allocators
+-------------------------------------------------------------------------------}
+
+-- | Allocate @n@ zeroed bytes for the duration of a continuation:
+-- 'Foreign.Marshal.Alloc.allocaBytes' followed by a @memset@ to zero. The allocator
+-- half of 'zeroedCStringOut', exposed for building an t'Unmarshaller' of your own
+-- over a buffer C may leave untouched.
+--
+allocaZeroedBytes :: Int -> (Ptr a -> IO r) -> IO r
+allocaZeroedBytes n k = allocaBytes n $ \p -> fillBytes p 0 n >> k p
+{-# INLINE allocaZeroedBytes #-}
+
+{-------------------------------------------------------------------------------
+  Managed-handle output
+-------------------------------------------------------------------------------}
+
+-- | An out-parameter that yields a /managed/ handle. Many C APIs acquire a handle
+-- through a @T **@ out-pointer paired with a @_free@ function (@int
+-- thing_open(thing **out, ...)@ and @void thing_free(thing *)@); this fills the
+-- out-pointer, then wraps the returned @'Ptr' T@ in a 'ForeignPtr' with
+-- @finalizer@ installed, so the handle frees itself at GC and the caller never frees
+-- it by hand. Wrap the raw 'ForeignPtr' in a binding's own handle @newtype@ with
+-- 'fmap' \/ 'Data.Coerce.coerce'. For a Haskell (rather than C) finalizer, build the
+-- t'Unmarshaller' directly over 'Foreign.Concurrent.newForeignPtr'.
+--
+outForeignPtr :: FinalizerPtr a -> Unmarshaller (Ptr (Ptr a)) (ForeignPtr a)
+outForeignPtr finalizer = unmarshalOut (newForeignPtr finalizer)
+{-# INLINE outForeignPtr #-}
+
+{-------------------------------------------------------------------------------
+  Constant arguments
+-------------------------------------------------------------------------------}
+
+-- | A NULL @const@ pointer, for an optional or absent @const T *@ C argument,
+-- supplied at the call site with @'Binding.Combinators.fixed' nullConst@.
+--
+nullConst :: PtrConst a
+nullConst = PtrConst.unsafeFromPtr nullPtr
+{-# INLINE nullConst #-}

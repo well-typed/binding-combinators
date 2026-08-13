@@ -1,0 +1,9 @@
+-- The hs-bindgen pin, runtime plus generator.
+--
+-- cabal.project.pin with hs-bindgen added, for the examples whose generate-and-run.sh
+-- may have to build hs-bindgen-cli. Keep the tag in step with cabal.project.pin.
+source-repository-package
+  type:     git
+  location: https://github.com/well-typed/hs-bindgen
+  tag:      main
+  subdir:   hs-bindgen hs-bindgen-runtime

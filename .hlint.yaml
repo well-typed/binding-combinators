@@ -1,0 +1,37 @@
+# HLint configuration.
+#
+# To see what a change would add or remove:
+#
+#   hlint src test
+#
+# Only hints that actually fire in this repository are listed, so the file stays a
+# record of decisions rather than a copy of HLint's defaults.
+
+- arguments:
+  # The generated low-level bindings under examples/*/hs-project/src/Generated are
+  # machine output, not source, and account for the overwhelming majority of hints
+  # (thousands of Use camelCase alone, since they mirror C identifiers).
+  - --ignore-glob=examples/**
+
+# A spec is built from combinators whose arity is load-bearing: each class instance is
+# written to read as one step of the recursion it implements, and a finished spec is
+# expected to inline down to the alloca/call/peek code by hand. Eta-reducing, collapsing
+# or floating out the lambdas hides the step structure, and can change how the instance
+# inlines. The two threading instances are the clearest case: `threadIn br f = br f`
+# ("open the bracket") is deliberately parallel to `threadIn br f = \arg -> ...`
+# ("peel an argument, recurse"), and `threadIn br = br` breaks that parallel.
+- ignore: {name: "Avoid lambda"}
+- ignore: {name: "Avoid lambda using `infix`"}
+- ignore: {name: "Redundant lambda"}
+- ignore: {name: "Eta reduce"}
+
+# Test fixtures stand in for generated bindings, so they carry the C name they mirror:
+# `c_strlen` is the binding for `strlen`. Renaming them to camelCase would lose the
+# correspondence the tests exist to check.
+- ignore: {name: "Use camelCase", within: "Test.**"}
+
+# In the test specs, `$` marks where the wrapper's arguments are applied, which lines the
+# Haskell up against the C prototype it wraps; and `\v _ -> v` reads as "take the output,
+# drop the C return" where `const` reads as neither.
+- ignore: {name: "Redundant $", within: "Test.**"}
+- ignore: {name: "Use const", within: "Test.**"}
