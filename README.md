@@ -34,7 +34,7 @@ written in.
 
 ## Installing
 
-Requires GHC 9.2 or later. Tested on 9.2 through 9.14.
+Requires GHC 9.4 or later. Tested on 9.4 through 9.14.
 
 Not on Hackage yet. In your `cabal.project`:
 

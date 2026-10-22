@@ -19,9 +19,7 @@
 # index-state in cabal.project.
 set -euo pipefail
 
-REPO="https://github.com/well-typed/libclang-bindings"
-TAG="ef67437045c45a32d7d1aa7166043937c1259d7f"
-SUBDIR="libclang-bindings"
+VERSION="0.2.0.0"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENDOR="$(cd "$HERE/.." && pwd)/libclang-bindings"
@@ -58,14 +56,11 @@ reexpose() {
 if [ -f "$VENDOR/libclang-bindings.cabal" ]; then
   echo ">> Using existing $VENDOR"
 else
-  echo ">> Fetching libclang-bindings @ ${TAG:0:12} from $REPO"
+  echo ">> Fetching libclang-bindings-$VERSION from Hackage"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  git clone --quiet --filter=blob:none --no-checkout "$REPO" "$tmp/repo"
-  git -C "$tmp/repo" checkout --quiet "$TAG"
-  mkdir -p "$VENDOR"
-  cp -a "$tmp/repo/$SUBDIR/." "$VENDOR/"
-  rm -rf "$VENDOR/dist-newstyle" "$VENDOR/dist"
+  cabal get --destdir="$tmp" "libclang-bindings-$VERSION"
+  mv "$tmp/libclang-bindings-$VERSION" "$VENDOR"
   echo ">> Re-exposing the raw substrate in libclang-bindings.cabal"
   reexpose "$VENDOR/libclang-bindings.cabal"
 fi

@@ -33,6 +33,7 @@ HS_OUTPUT_DIR="$SCRIPT_DIR/hs-project/src"
 CABAL_FILE="$SCRIPT_DIR/hs-project/libsodium.cabal"
 GRAPH="$SCRIPT_DIR/include-graph.mmd"
 GENLOG_DIR="$SCRIPT_DIR/gen-logs"
+CLI_DIR="$SCRIPT_DIR/hs-bindgen-bin"
 
 # Headers we deliberately do not generate. Populated as failures are triaged.
 SKIP=""
@@ -63,7 +64,7 @@ mkdir -p "$BINDING_SPEC_DIR" "$HS_OUTPUT_DIR" "$GENLOG_DIR"
 cd "$SCRIPT_DIR"
 
 # hs-bindgen-cli. Prefer an explicit override, then one already on PATH, and only fall
-# back to building the hs-bindgen pinned by hs-project/cabal.project, which is slow: it
+# back to installing it from Hackage at hs-project's index-state, which is slow: it
 # drags in the generator's whole dependency closure and needs libclang.
 CLI="${HS_BINDGEN_CLI:-}"
 if [ -n "$CLI" ] && [ ! -x "$CLI" ]; then
@@ -74,9 +75,10 @@ if [ -z "$CLI" ] && command -v hs-bindgen-cli >/dev/null 2>&1; then
   CLI="$(command -v hs-bindgen-cli)"
 fi
 if [ -z "$CLI" ]; then
-  echo "==> no hs-bindgen-cli found; building the pinned one (set HS_BINDGEN_CLI to skip)"
-  ( cd "$SCRIPT_DIR/hs-project" && cabal build hs-bindgen-cli ) || exit 1
-  CLI="$( cd "$SCRIPT_DIR/hs-project" && cabal list-bin hs-bindgen-cli )" || exit 1
+  echo "==> no hs-bindgen-cli found; installing it from Hackage (set HS_BINDGEN_CLI to skip)"
+  ( cd "$SCRIPT_DIR/hs-project" && cabal install hs-bindgen --installdir="$CLI_DIR" \
+      --install-method=copy --overwrite-policy=always ) || exit 1
+  CLI="$CLI_DIR/hs-bindgen-cli"
 fi
 echo "==> using hs-bindgen-cli at $CLI"
 
