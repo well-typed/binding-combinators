@@ -83,7 +83,7 @@ library
 
   build-depends:
     , bytestring          >=0.11 && <0.13
-    , hs-bindgen-runtime  >=0.1  && <0.2
+    , hs-bindgen-runtime  >=1.0  && <1.1
 
 test-suite test-binding-combinators
   import:         lang
