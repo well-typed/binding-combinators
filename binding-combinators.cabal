@@ -13,8 +13,7 @@ build-type:      Simple
 homepage:        https://github.com/well-typed/binding-combinators
 bug-reports:     https://github.com/well-typed/binding-combinators/issues
 tested-with:
-  GHC ==9.2.8
-   || ==9.4.8
+  GHC ==9.4.8
    || ==9.6.7
    || ==9.8.4
    || ==9.10.3
@@ -49,7 +48,7 @@ common lang
     -Wprepositive-qualified-module
 
   ghc-options:        -Werror=missing-deriving-strategies
-  build-depends:      base >=4.16 && <4.23
+  build-depends:      base >=4.17 && <4.23
   default-language:   GHC2021
   default-extensions:
     DataKinds
@@ -83,7 +82,7 @@ library
 
   build-depends:
     , bytestring          >=0.11 && <0.13
-    , hs-bindgen-runtime  >=0.1  && <0.2
+    , hs-bindgen-runtime  >=1.0  && <1.1
 
 test-suite test-binding-combinators
   import:         lang

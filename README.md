@@ -34,22 +34,15 @@ written in.
 
 ## Installing
 
-Requires GHC 9.2 or later. Tested on 9.2 through 9.14.
+Requires GHC 9.4 or later. Tested on 9.4 through 9.14.
 
-Not on Hackage yet. It depends on `hs-bindgen-runtime`, which is not on
-Hackage (yet) either, so for now both come from git. In your `cabal.project`:
+Not on Hackage yet. In your `cabal.project`:
 
 ```cabal
 source-repository-package
   type:     git
   location: https://github.com/well-typed/binding-combinators
   tag:      <commit>
-
-source-repository-package
-  type:     git
-  location: https://github.com/well-typed/hs-bindgen
-  tag:      <commit>
-  subdir:   hs-bindgen-runtime
 ```
 
 `hs-bindgen-runtime` supplies the types generated bindings are written in, which
